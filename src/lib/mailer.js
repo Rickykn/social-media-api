@@ -13,7 +13,7 @@ const mailer = async ({ subject, to, text, html }) => {
     subject: subject || "Test Subject",
     to: to || "rickyyyyykn25@gmail.com",
     text: text || "test nodemailer",
-    // html: html || "<h1>This is sent from my express API</h1> ",
+    html: html || "<h1>This is sent from my express API</h1> ",
   });
 };
 

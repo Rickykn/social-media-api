@@ -1,8 +1,10 @@
 const { Op } = require("sequelize");
 const { User } = require("../lib/sequelize");
 const bcrypt = require("bcrypt");
-const { generateToken } = require("../lib/jwt");
+const { generateToken, verifyToken } = require("../lib/jwt");
 const mailer = require("../lib/mailer");
+const mustache = require("mustache");
+const fs = require("fs");
 
 const authControllers = {
   registerUser: async (req, res) => {
@@ -25,11 +27,37 @@ const authControllers = {
 
       const hashedPassword = bcrypt.hashSync(password, 5);
 
-      await User.create({
+      const newUser = await User.create({
         username,
         email,
         full_name,
         password: hashedPassword,
+      });
+
+      //verification email
+      const verificationToken = generateToken(
+        {
+          id: newUser.id,
+          isEmailVerification: true,
+        },
+        "1h"
+      );
+
+      const verificationLink = `https://localhost:2022/auth/verify/${verificationToken}`;
+
+      const templates = fs
+        .readFileSync(__dirname + "/../templates/verify.html")
+        .toString();
+
+      const renderedTemplate = mustache.render(templates, {
+        username,
+        verify_url: verificationLink,
+      });
+
+      await mailer({
+        to: email,
+        subject: "Verify your account",
+        html: renderedTemplate,
       });
 
       return res.status(201).json({
@@ -73,11 +101,11 @@ const authControllers = {
         role: findUser.role,
       });
 
-      await mailer({
-        to: "rickyyyyykn25@gmail.com",
-        subject: "Logged in account",
-        text: "An account using your email has logged in",
-      });
+      // await mailer({
+      //   to: "rickyyyyykn25@gmail.com",
+      //   subject: "Logged in account",
+      //   text: "An account using your email has logged in",
+      // });
 
       return res.status(200).json({
         message: "Logged in user",
@@ -113,6 +141,72 @@ const authControllers = {
           user: findUser,
           token: renewedToken,
         },
+      });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({
+        message: "Server error",
+      });
+    }
+  },
+  verifyUser: async (req, res) => {
+    try {
+      const { token } = req.params;
+      const isTokenVerified = verifyToken(token);
+
+      if (!isTokenVerified || !isTokenVerified.isEmailVerification) {
+        res.status(400).json({
+          message: "Invalid Token",
+        });
+      }
+
+      await User.update(
+        { is_verified: true },
+        {
+          where: {
+            id: isTokenVerified.id,
+          },
+        }
+      );
+
+      return res.status(200).json({
+        message: "user verified",
+      });
+    } catch (err) {
+      console.log(err);
+      res.status(500).json({
+        message: "server error",
+      });
+    }
+  },
+  resendVerify: async (req, res) => {
+    try {
+      const { token } = req;
+
+      const findUser = await User.findByPk(token.id);
+      if (findUser.is_verified) {
+        return res.status(400).json({
+          message: "User is already verified",
+        });
+      }
+      const verificationToken = generateToken(
+        {
+          id: token.id,
+          isEmailVerification: true,
+        },
+        "1h"
+      );
+
+      const verificationLink = `https://localhost:2022/auth/verify/${verificationToken}`;
+
+      await mailer({
+        to: findUser.email,
+        subject: "Verify your account",
+        html: `Your account has been registered,please verify it by clicking this <a href="${verificationLink}">link</a>`,
+      });
+
+      return res.status(200).json({
+        message: "resend success",
       });
     } catch (err) {
       console.log(err);
